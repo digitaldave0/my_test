@@ -1,50 +1,36 @@
-pipeline {
-    agent any
+node {
+    def app
 
-    triggers {
-        pollSCM('*/5 * * * 1-5')
-    }
-    options {
-        skipDefaultCheckout(true)
-        // Keep the 10 most recent builds
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-        timestamps()
-    }
-    environment {
-      PATH="/var/lib/jenkins/miniconda3/bin:$PATH"
+    stage('Clone repository') {
+        /* Let's make sure we have the repository cloned to our workspace */
+
+        checkout scm
     }
 
-    stages {
+    stage('Build image') {
+        /* This builds the actual image; synonymous to
+         * docker build on the command line */
 
-        stage ("Code pull"){
-            steps{
-                checkout scm
-            }
-        }
-        stage('Build environment') {
-            steps {
-                sh '''conda create --yes -n ${BUILD_TAG} python
-                      source activate ${BUILD_TAG} 
-                      pip install -r requirements.txt
-                    '''
-            }
-        }
-        stage('Test environment') {
-            steps {
-                sh '''source activate ${BUILD_TAG} 
-                      pip list
-                      which pip
-                      which python
-                    '''
-            }
+        app = docker.build("getintodevops/hellonode")
+    }
+
+    stage('Test image') {
+        /* Ideally, we would run a test framework against our image.
+         * For this example, we're using a Volkswagen-type approach ;-) */
+
+        app.inside {
+            sh 'echo "Tests passed"'
         }
     }
-    post {
-        always {
-            sh 'conda remove --yes -n ${BUILD_TAG} --all'
-        }
-        failure {
-            echo "Send e-mail, when failed"
+
+    stage('Push image') {
+        /* Finally, we'll push the image with two tags:
+         * First, the incremental build number from Jenkins
+         * Second, the 'latest' tag.
+         * Pushing multiple tags is cheap, as all the layers are reused. */
+        docker.withRegistry('https://registry.hub.docker.com', 'docker-hub-credentials') {
+            app.push("${env.BUILD_NUMBER}")
+            app.push("latest")
         }
     }
 }
